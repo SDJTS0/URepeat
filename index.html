@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0d0b">
+  <meta name="description" content="URepeat. Una canción, repetida automáticamente.">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <title>URepeat</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b0d0b; --panel:#151815; --ink:#f4f6f1; --muted:#9da59b; --lime:#c5ff4a; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100svh; background:radial-gradient(ellipse at 50% 0%,#1b2417 0,var(--bg) 48%); color:var(--ink); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; display:flex; justify-content:center; }
+    main { width:min(100%,520px); min-height:100svh; padding:calc(24px + env(safe-area-inset-top)) 22px calc(24px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; }
+    header { display:flex; align-items:center; justify-content:space-between; }
+    .brand { font-size:1.2rem; letter-spacing:-.06em; font-weight:800; }
+    .brand span { color:var(--lime); }
+    .pill { border:1px solid #35402b; color:var(--lime); border-radius:99px; padding:5px 10px; font-size:.68rem; letter-spacing:.12em; }
+    .hero { text-align:center; margin:auto 0; padding:30px 0; }
+    .art { width:min(62vw,250px); aspect-ratio:1; margin:0 auto 28px; border-radius:26px; background:linear-gradient(145deg,#1e2a18,#090b09); display:grid; place-items:center; box-shadow:0 22px 80px #0009; border:1px solid #293323; overflow:hidden; }
+    .art svg { width:76%; height:76%; }
+    h1 { margin:0; font-size:clamp(1.8rem,7vw,2.5rem); letter-spacing:-.06em; }
+    .sub { color:var(--muted); margin:8px 0 24px; font-size:.92rem; }
+    .track { color:var(--ink); font-weight:650; overflow-wrap:anywhere; margin:0 auto 4px; max-width:100%; }
+    .status { color:var(--muted); font-size:.8rem; min-height:1.4em; }
+    .player { margin:0 auto 18px; width:100%; aspect-ratio:16/9; border-radius:16px; overflow:hidden; background:#111; display:none; }
+    .player.visible { display:block; }
+    .player iframe { width:100%; height:100%; border:0; }
+    .actions { display:grid; gap:10px; }
+    .primary,.secondary { width:100%; min-height:52px; border:0; border-radius:15px; font:inherit; font-weight:750; cursor:pointer; }
+    .primary { background:var(--lime); color:#11150c; }
+    .secondary { background:var(--panel); color:var(--ink); border:1px solid #292e28; }
+    .entry { display:flex; gap:8px; margin-bottom:10px; }
+    input { min-width:0; flex:1; background:#141714; border:1px solid #30372c; border-radius:13px; padding:0 14px; color:var(--ink); font:inherit; }
+    input:focus { outline:2px solid var(--lime); outline-offset:2px; }
+    footer { color:#778073; font-size:.72rem; text-align:center; margin-top:24px; }
+    .hidden { display:none!important; }
+    .note { color:var(--muted); font-size:.78rem; margin-top:12px; text-align:center; }
+    @media (prefers-reduced-motion:no-preference) { .art svg { animation:turn 24s linear infinite; } @keyframes turn { to { transform:rotate(360deg); } } }
+  </style>
+</head>
+<body>
+<main>
+  <header><div class="brand">U<span>Repeat</span></div><div class="pill">REPEAT · 1</div></header>
+  <section class="hero">
+    <div class="art" aria-hidden="true">
+      <svg viewBox="0 0 200 200" fill="none">
+        <circle cx="100" cy="100" r="88" stroke="#c5ff4a" stroke-width="1.5" opacity=".35"/>
+        <circle cx="100" cy="100" r="67" stroke="#c5ff4a" stroke-width="2" opacity=".55"/>
+        <circle cx="100" cy="100" r="45" stroke="#c5ff4a" stroke-width="3"/>
+        <circle cx="100" cy="100" r="12" fill="#c5ff4a"/>
+        <path d="M100 12 A88 88 0 0 1 188 100" stroke="#c5ff4a" stroke-width="5" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <h1>Una canción.<br>Siempre.</h1>
+    <p class="sub">Tu espacio. Tu ritmo. Sin interrupciones de playlist.</p>
+    <p class="track" id="trackTitle">Tu próxima obsesión empieza aquí</p>
+    <p class="status" id="status" role="status">Comparte una canción desde YouTube para comenzar.</p>
+  </section>
+  <section id="player" class="player" aria-label="Reproductor de YouTube"></section>
+  <section class="actions">
+    <form id="urlForm">
+      <div class="entry"><input id="videoUrl" type="url" placeholder="Pega un enlace de YouTube" aria-label="Enlace de YouTube" autocomplete="url"><button class="primary" type="submit" style="width:auto;padding:0 18px">Repetir</button></div>
+    </form>
+    <button id="shareHelp" class="secondary" type="button">Cómo compartir desde YouTube</button>
+    <button id="cancel" class="secondary hidden" type="button">Cancelar URepeat</button>
+  </section>
+  <p class="note">Repetición automática activada por defecto · Usa el reproductor oficial de YouTube.</p>
+  <footer>URepeat no está afiliada a YouTube. La reproducción está sujeta a las condiciones y restricciones de YouTube.</footer>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+  const candidates = [params.get('url'), params.get('text'), params.get('title')].filter(Boolean);
+  let initial = candidates.find(v => /youtu\.be|youtube\.com/i.test(v)) || '';
+  let currentId = '';
+  const status = (msg) => $('status').textContent = msg;
+
+  function extractId(raw) {
+    if (!raw) return null;
+    let input = raw.trim();
+    const match = input.match(/https?:\/\/[^\s]+/i);
+    if (match) input = match[0].replace(/[),.;]+$/, '');
+    try {
+      const u = new URL(input);
+      const host = u.hostname.replace(/^www\./,'').replace(/^m\./,'');
+      if (host === 'youtu.be') return u.pathname.split('/').filter(Boolean)[0] || null;
+      if (host === 'youtube.com' || host === 'music.youtube.com') {
+        if (u.pathname === '/watch') return u.searchParams.get('v');
+        const parts = u.pathname.split('/').filter(Boolean);
+        if (['shorts','embed','live'].includes(parts[0])) return parts[1] || null;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function start(raw) {
+    const id = extractId(raw);
+    if (!id || !/^[\w-]{11}$/.test(id)) {
+      status('No reconocí ese enlace. Usa una URL de vídeo de YouTube.');
+      return;
+    }
+    currentId = id;
+    localStorage.setItem('urepeat.videoId', id);
+    $('videoUrl').value = '';
+    $('trackTitle').textContent = 'Tu canción seleccionada';
+    status('Modo URepeat activo · una sola canción en bucle.');
+    $('player').classList.add('visible');
+    $('player').innerHTML = `<iframe title="Reproductor de YouTube" src="https://www.youtube-nocookie.com/embed/${id}?autoplay=1&loop=1&playlist=${id}&playsinline=1&rel=0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
+    $('cancel').classList.remove('hidden');
+    history.replaceState({}, '', location.pathname);
+  }
+
+  $('urlForm').addEventListener('submit', e => { e.preventDefault(); start($('videoUrl').value); });
+  $('shareHelp').addEventListener('click', () => {
+    status('En YouTube: abre Compartir → Más opciones → elige URepeat. Si no aparece, copia el enlace y pégalo arriba.');
+  });
+  $('cancel').addEventListener('click', () => {
+    currentId = '';
+    localStorage.removeItem('urepeat.videoId');
+    $('player').innerHTML = '';
+    $('player').classList.remove('visible');
+    $('cancel').classList.add('hidden');
+    $('trackTitle').textContent = 'Tu próxima obsesión empieza aquí';
+    status('Sesión cancelada. Comparte otra canción para comenzar.');
+  });
+
+  if (initial) start(initial);
+  else {
+    const saved = localStorage.getItem('urepeat.videoId');
+    if (saved && /^[\w-]{11}$/.test(saved)) {
+      $('trackTitle').textContent = 'Tu canción guardada';
+      status('Canción recordada. Toca Repetir para iniciar la sesión.');
+      $('videoUrl').value = `https://www.youtube.com/watch?v=${saved}`;
+    }
+  }
+
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>
